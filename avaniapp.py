@@ -1,5 +1,6 @@
 import os
-import csv
+import psycopg2
+from psycopg2.extras import RealDictCursor
 from flask import Flask, render_template, request, redirect, url_for, session
 
 base_dir = os.path.abspath(os.path.dirname(__file__))
@@ -7,22 +8,74 @@ base_dir = os.path.abspath(os.path.dirname(__file__))
 app = Flask(__name__,
             template_folder=os.path.join(base_dir, 'templates'),
             static_folder=os.path.join(base_dir, 'static'))
-app.secret_key = "avania_super_secret_key"
+app.secret_key = os.environ.get("SECRET_KEY", "avania_super_secret_key")
 
-def initialize_files():
-    files_headers = {
-        "users.csv":   ["Email", "Username", "Password", "ExpertPoints", "FirstName", "LastName"],
-        "ideas.csv":   ["Title", "Problem", "Users", "Solution", "Advantage", "Impact",
-                        "Category", "Status", "Owner", "Version"],
-        "reviews.csv": ["IdeaTitle", "Innovation", "Feasibility", "Usefulness",
-                        "Clarity", "Notes", "Reviewer"]
-    }
-    for filename, headers in files_headers.items():
-        if not os.path.exists(filename):
-            with open(filename, "w", newline="") as f:
-                csv.writer(f).writerow(headers)
+DATABASE_URL = os.environ.get('DATABASE_URL')
 
-initialize_files()
+# ── Render gives postgres:// but psycopg2 needs postgresql:// ──
+if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
+def get_db_connection():
+    return psycopg2.connect(DATABASE_URL)
+
+def initialize_database():
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            id SERIAL PRIMARY KEY,
+            email VARCHAR(120) NOT NULL,
+            username VARCHAR(60) UNIQUE NOT NULL,
+            password TEXT NOT NULL,
+            expert_points INTEGER DEFAULT 0,
+            first_name VARCHAR(60),
+            last_name VARCHAR(60)
+        );
+    ''')
+
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS ideas (
+            id SERIAL PRIMARY KEY,
+            title VARCHAR(255) NOT NULL,
+            problem TEXT,
+            users TEXT,
+            solution TEXT,
+            advantage TEXT,
+            impact TEXT,
+            category VARCHAR(100),
+            status VARCHAR(20) DEFAULT 'Private',
+            owner VARCHAR(60) NOT NULL,
+            version VARCHAR(20) DEFAULT '1.0'
+        );
+    ''')
+
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS reviews (
+            id SERIAL PRIMARY KEY,
+            idea_title VARCHAR(255) NOT NULL,
+            innovation VARCHAR(5),
+            feasibility VARCHAR(5),
+            usefulness VARCHAR(5),
+            clarity VARCHAR(5),
+            notes TEXT,
+            reviewer VARCHAR(60) NOT NULL
+        );
+    ''')
+
+    conn.commit()
+    cur.close()
+    conn.close()
+
+# Only init DB if DATABASE_URL is set (safe for local dev without Postgres)
+if DATABASE_URL:
+    try:
+        initialize_database()
+    except Exception as e:
+        print(f"DB init warning: {e}")
+
+# ── ROUTES ──
 
 @app.route("/")
 def home():
@@ -39,21 +92,40 @@ def exit_app():
 
 @app.route("/login")
 def login():
-    status    = request.args.get('status')
-    submitted = request.args.get('submitted')
+    status       = request.args.get('status')
+    submitted    = request.args.get('submitted')
     current_user = session.get('username')
 
-    all_ideas = []
-    if os.path.exists("ideas.csv"):
-        with open("ideas.csv", "r") as f:
-            for row in csv.DictReader(f):
-                if row.get("Status") == "Public" or row.get("Owner") == current_user:
-                    all_ideas.append(row)
-
+    all_ideas   = []
     all_reviews = []
-    if os.path.exists("reviews.csv"):
-        with open("reviews.csv", "r") as f:
-            all_reviews = list(csv.DictReader(f))
+
+    if DATABASE_URL:
+        try:
+            conn = get_db_connection()
+            cur  = conn.cursor(cursor_factory=RealDictCursor)
+
+            cur.execute('''
+                SELECT title AS "Title", problem AS "Problem", users AS "Users",
+                       solution AS "Solution", advantage AS "Advantage", impact AS "Impact",
+                       category AS "Category", status AS "Status", owner AS "Owner",
+                       version AS "Version"
+                FROM ideas
+                WHERE status = 'Public' OR owner = %s
+            ''', (current_user,))
+            all_ideas = [dict(r) for r in cur.fetchall()]
+
+            cur.execute('''
+                SELECT idea_title AS "IdeaTitle", innovation AS "Innovation",
+                       feasibility AS "Feasibility", usefulness AS "Usefulness",
+                       clarity AS "Clarity", notes AS "Notes", reviewer AS "Reviewer"
+                FROM reviews
+            ''')
+            all_reviews = [dict(r) for r in cur.fetchall()]
+
+            cur.close()
+            conn.close()
+        except Exception as e:
+            print(f"DB read error: {e}")
 
     return render_template("avanilogin.html",
                            status=status,
@@ -64,27 +136,36 @@ def login():
 
 @app.route("/register", methods=["POST"])
 def register():
-    # ── pull all fields safely with .get() so missing fields return None gracefully ──
     first_name = request.form.get("first_name", "").strip()
     last_name  = request.form.get("last_name",  "").strip()
     username   = request.form.get("username",   "").strip()
     contact    = request.form.get("contact",    "").strip()
     password   = request.form.get("password",   "").strip()
 
-    # basic validation — don't save if username or contact is empty
     if not username or not contact or not password:
         return redirect(url_for('login') + "?status=reg_error")
 
-    # check duplicate username
-    if os.path.exists("users.csv"):
-        with open("users.csv", "r") as f:
-            for row in csv.DictReader(f):
-                if row.get("Username", "").lower() == username.lower():
-                    return redirect(url_for('login') + "?status=username_taken")
+    try:
+        conn = get_db_connection()
+        cur  = conn.cursor()
 
-    # save new user
-    with open("users.csv", "a", newline="") as f:
-        csv.writer(f).writerow([contact, username, password, "0", first_name, last_name])
+        cur.execute("SELECT id FROM users WHERE LOWER(username) = LOWER(%s);", (username,))
+        if cur.fetchone():
+            cur.close()
+            conn.close()
+            return redirect(url_for('login') + "?status=username_taken")
+
+        cur.execute('''
+            INSERT INTO users (email, username, password, expert_points, first_name, last_name)
+            VALUES (%s, %s, %s, 0, %s, %s);
+        ''', (contact, username, password, first_name, last_name))
+
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f"Register error: {e}")
+        return redirect(url_for('login') + "?status=reg_error")
 
     return redirect(url_for('login'))
 
@@ -93,47 +174,84 @@ def login_check():
     u = request.form.get("username", "").strip()
     p = request.form.get("password", "").strip()
 
-    if os.path.exists("users.csv"):
-        with open("users.csv", "r") as f:
-            for row in csv.DictReader(f):
-                # allow login by username OR email
-                if (row.get("Username") == u or row.get("Email") == u) and row.get("Password") == p:
-                    session['username'] = row["Username"]
-                    return redirect(url_for('login', status='success'))
+    try:
+        conn = get_db_connection()
+        cur  = conn.cursor(cursor_factory=RealDictCursor)
+
+        cur.execute('''
+            SELECT username FROM users
+            WHERE (username = %s OR email = %s) AND password = %s;
+        ''', (u, u, p))
+        user = cur.fetchone()
+
+        cur.close()
+        conn.close()
+
+        if user:
+            session['username'] = user['username']
+            return redirect(url_for('login', status='success'))
+
+    except Exception as e:
+        print(f"Login error: {e}")
 
     return redirect(url_for('login', status='failed'))
 
 @app.route("/share_idea", methods=["POST"])
 def share_idea():
-    data = [
-        request.form.get("title",     "").strip(),
-        request.form.get("problem",   "").strip(),
-        request.form.get("users",     "").strip(),
-        request.form.get("solution",  "").strip(),
-        request.form.get("advantage", "").strip(),
-        request.form.get("impact",    "").strip(),
-        request.form.get("category",  "").strip(),
-        request.form.get("status",    "Private"),
-        session.get('username', 'Guest'),
-        "1.0"
-    ]
-    with open("ideas.csv", "a", newline="") as f:
-        csv.writer(f).writerow(data)
+    try:
+        conn = get_db_connection()
+        cur  = conn.cursor()
+        cur.execute('''
+            INSERT INTO ideas (title, problem, users, solution, advantage, impact,
+                               category, status, owner, version)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
+        ''', (
+            request.form.get("title",     "").strip(),
+            request.form.get("problem",   "").strip(),
+            request.form.get("users",     "").strip(),
+            request.form.get("solution",  "").strip(),
+            request.form.get("advantage", "").strip(),
+            request.form.get("impact",    "").strip(),
+            request.form.get("category",  "").strip(),
+            request.form.get("status",    "Private"),
+            session.get('username', 'Guest'),
+            "1.0"
+        ))
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f"Share idea error: {e}")
+
     return redirect(url_for('login', status='success', submitted='idea'))
 
 @app.route("/submit_review", methods=["POST"])
 def submit_review():
-    data = [
-        request.form.get("idea_title",  "").strip(),
-        request.form.get("innovation",  "3"),
-        request.form.get("feasibility", "3"),
-        request.form.get("usefulness",  "3"),
-        request.form.get("clarity",     "3"),
-        request.form.get("notes",       "").strip(),
-        session.get('username', 'Guest')
-    ]
-    with open("reviews.csv", "a", newline="") as f:
-        csv.writer(f).writerow(data)
+    try:
+        conn = get_db_connection()
+        cur  = conn.cursor()
+        cur.execute('''
+            INSERT INTO reviews (idea_title, innovation, feasibility,
+                                 usefulness, clarity, notes, reviewer)
+            VALUES (%s, %s, %s, %s, %s, %s, %s);
+        ''', (
+            request.form.get("idea_title",  "").strip(),
+            request.form.get("innovation",  "3"),
+            request.form.get("feasibility", "3"),
+            request.form.get("usefulness",  "3"),
+            request.form.get("clarity",     "3"),
+            request.form.get("notes",       "").strip(),
+            session.get('username', 'Guest')
+        ))
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f"Submit review error: {e}")
+
+    # Return 200 for fetch() calls from JS, redirect for form POST
+    if request.headers.get('X-Requested-With') == 'fetch':
+        return '', 200
     return redirect(url_for('login', status='success', submitted='review'))
 
 @app.route("/export_pdf/<title>")
@@ -141,6 +259,5 @@ def export_pdf(title):
     return f"Generating PDF for {title}... (Feature coming soon)", 200
 
 if __name__ == '__main__':
-    import os
     port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port, debug=True)
+    app.run(host='0.0.0.0', port=port, debug=False)
