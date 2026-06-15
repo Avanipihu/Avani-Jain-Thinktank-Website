@@ -1,7 +1,11 @@
 import os
+import sys
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from flask import Flask, render_template, request, redirect, url_for, session
+
+# Force stdout to flush immediately so print() shows in Render logs right away
+sys.stdout.reconfigure(line_buffering=True)
 
 base_dir = os.path.abspath(os.path.dirname(__file__))
 
@@ -72,9 +76,9 @@ def initialize_database():
 if DATABASE_URL:
     try:
         initialize_database()
-        print("Database tables ready.")
+        print("Database tables ready.", flush=True)
     except Exception as e:
-        print(f"DB init warning: {e}")
+        print(f"DB init warning: {e}", flush=True)
 
 # ── ROUTES ──
 
@@ -126,7 +130,7 @@ def login():
             cur.close()
             conn.close()
         except Exception as e:
-            print(f"DB read error: {e}")
+            print(f"DB read error: {e}", flush=True)
 
     return render_template("avanilogin.html",
                            status=status,
@@ -140,13 +144,14 @@ def register():
     first_name = request.form.get("first_name", "").strip()
     last_name  = request.form.get("last_name",  "").strip()
     username   = request.form.get("username",   "").strip()
-    email      = request.form.get("email",      "").strip()
+    contact    = request.form.get("contact",    "").strip()
     password   = request.form.get("password",   "").strip()
 
-    print(f"REGISTER incoming: user={username} email={email} pass_len={len(password)}")
+    print(f"REGISTER attempt: username='{username}' contact='{contact}' "
+          f"password_len={len(password)} first='{first_name}' last='{last_name}'", flush=True)
 
-    if not username or not email or not password:
-        print("REGISTER blocked: missing required fields.")
+    if not username or not contact or not password:
+        print("REGISTER blocked: a required field was empty.", flush=True)
         return redirect(url_for('login') + "?status=reg_error")
 
     try:
@@ -157,25 +162,24 @@ def register():
         if cur.fetchone():
             cur.close()
             conn.close()
-            print(f"REGISTER blocked: '{username}' taken.")
+            print(f"REGISTER blocked: username '{username}' already taken.", flush=True)
             return redirect(url_for('login') + "?status=username_taken")
 
         cur.execute('''
             INSERT INTO users (email, username, password, expert_points, first_name, last_name)
             VALUES (%s, %s, %s, 0, %s, %s);
-        ''', (email, username, password, first_name, last_name))
+        ''', (contact, username, password, first_name, last_name))
 
         conn.commit()
         cur.close()
         conn.close()
-        print(f"REGISTER Success: '{username}' saved to Supabase.")
+        print(f"REGISTER success: '{username}' created.", flush=True)
     except Exception as e:
-        print(f"REGISTER SYSTEM FAILURE: {repr(e)}")
+        print(f"REGISTER DB ERROR: {repr(e)}", flush=True)
         return redirect(url_for('login') + "?status=reg_error")
 
-    session['username'] = username
-    return redirect(url_for('login', status='success'))
-            
+    return redirect(url_for('login'))
+
 @app.route("/login_check", methods=["POST"])
 def login_check():
     u = request.form.get("username", "").strip()
@@ -185,12 +189,10 @@ def login_check():
         conn = get_db_connection()
         cur  = conn.cursor(cursor_factory=RealDictCursor)
 
-        # Flexible query matching raw strings, lowercase variants, or text boundaries
         cur.execute('''
             SELECT username FROM users
-            WHERE (LOWER(username) = LOWER(%s) OR LOWER(email) = LOWER(%s)) 
-              AND (password = %s OR TRIM(password) = TRIM(%s));
-        ''', (u, u, p, p))
+            WHERE (username = %s OR email = %s) AND password = %s;
+        ''', (u, u, p))
         user = cur.fetchone()
 
         cur.close()
@@ -199,11 +201,9 @@ def login_check():
         if user:
             session['username'] = user['username']
             return redirect(url_for('login', status='success'))
-            
-        print("LOGIN failed: No matching database record found.")
 
     except Exception as e:
-        print(f"LOGIN EXCEPTION ERROR: {repr(e)}")
+        print(f"LOGIN DB ERROR: {repr(e)}", flush=True)
 
     return redirect(url_for('login', status='failed'))
 
@@ -232,7 +232,7 @@ def share_idea():
         cur.close()
         conn.close()
     except Exception as e:
-        print(f"SHARE IDEA DB ERROR: {repr(e)}")
+        print(f"SHARE IDEA DB ERROR: {repr(e)}", flush=True)
 
     return redirect(url_for('login', status='success', submitted='idea'))
 
@@ -251,14 +251,14 @@ def submit_review():
             request.form.get("feasibility", "3"),
             request.form.get("usefulness",  "3"),
             request.form.get("clarity",     "3"),
-            request.form.get("notes",         "").strip(),
+            request.form.get("notes",        "").strip(),
             session.get('username', 'Guest')
         ))
         conn.commit()
         cur.close()
         conn.close()
     except Exception as e:
-        print(f"SUBMIT REVIEW DB ERROR: {repr(e)}")
+        print(f"SUBMIT REVIEW DB ERROR: {repr(e)}", flush=True)
 
     if request.headers.get('X-Requested-With') == 'fetch':
         return '', 200
