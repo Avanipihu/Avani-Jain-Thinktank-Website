@@ -12,6 +12,7 @@ app.secret_key = os.environ.get("SECRET_KEY", "avania_super_secret_key")
 
 DATABASE_URL = os.environ.get('DATABASE_URL')
 
+# ── Render gives postgres:// but psycopg2 needs postgresql:// ──
 if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
@@ -139,8 +140,13 @@ def register():
     first_name = request.form.get("first_name", "").strip()
     last_name  = request.form.get("last_name",  "").strip()
     username   = request.form.get("username",   "").strip()
-    contact    = request.form.get("contact",    "").strip()
     password   = request.form.get("password",   "").strip()
+    
+    # Adaptive check: falls back to checking form "email" field if "contact" field is empty
+    contact = request.form.get("contact", "")
+    if not contact or not contact.strip():
+        contact = request.form.get("email", "")
+    contact = contact.strip()
 
     print(f"REGISTER attempt: username='{username}' contact='{contact}' "
           f"password_len={len(password)} first='{first_name}' last='{last_name}'")
@@ -173,7 +179,7 @@ def register():
         print(f"REGISTER DB ERROR: {repr(e)}")
         return redirect(url_for('login') + "?status=reg_error")
 
-    return redirect(url_for('login'))
+    return redirect(url_for('login', status='success'))
 
 @app.route("/login_check", methods=["POST"])
 def login_check():
@@ -246,7 +252,7 @@ def submit_review():
             request.form.get("feasibility", "3"),
             request.form.get("usefulness",  "3"),
             request.form.get("clarity",     "3"),
-            request.form.get("notes",        "").strip(),
+            request.form.get("notes",         "").strip(),
             session.get('username', 'Guest')
         ))
         conn.commit()
