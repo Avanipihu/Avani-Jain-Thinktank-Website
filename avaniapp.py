@@ -20,11 +20,9 @@ def get_db_connection():
     return psycopg2.connect(DATABASE_URL)
 
 def initialize_database():
+    """Creates tables only if they don't exist yet. Never drops data."""
     conn = get_db_connection()
     cur = conn.cursor()
-
-    # Automatically drop older mismatched tables to avoid structure conflicts
-    cur.execute("DROP TABLE IF EXISTS reviews, ideas, users CASCADE;")
 
     cur.execute('''
         CREATE TABLE IF NOT EXISTS users (
@@ -71,10 +69,10 @@ def initialize_database():
     cur.close()
     conn.close()
 
-# Only init DB if DATABASE_URL is set (safe for local dev without Postgres)
 if DATABASE_URL:
     try:
         initialize_database()
+        print("Database tables ready.")
     except Exception as e:
         print(f"DB init warning: {e}")
 
@@ -145,7 +143,11 @@ def register():
     contact    = request.form.get("contact",    "").strip()
     password   = request.form.get("password",   "").strip()
 
+    print(f"REGISTER attempt: username='{username}' contact='{contact}' "
+          f"password_len={len(password)} first='{first_name}' last='{last_name}'")
+
     if not username or not contact or not password:
+        print("REGISTER blocked: a required field was empty.")
         return redirect(url_for('login') + "?status=reg_error")
 
     try:
@@ -156,6 +158,7 @@ def register():
         if cur.fetchone():
             cur.close()
             conn.close()
+            print(f"REGISTER blocked: username '{username}' already taken.")
             return redirect(url_for('login') + "?status=username_taken")
 
         cur.execute('''
@@ -166,8 +169,9 @@ def register():
         conn.commit()
         cur.close()
         conn.close()
+        print(f"REGISTER success: '{username}' created.")
     except Exception as e:
-        print(f"Register error: {e}")
+        print(f"REGISTER DB ERROR: {repr(e)}")
         return redirect(url_for('login') + "?status=reg_error")
 
     return redirect(url_for('login'))
@@ -195,7 +199,7 @@ def login_check():
             return redirect(url_for('login', status='success'))
 
     except Exception as e:
-        print(f"Login error: {e}")
+        print(f"LOGIN DB ERROR: {repr(e)}")
 
     return redirect(url_for('login', status='failed'))
 
@@ -224,7 +228,7 @@ def share_idea():
         cur.close()
         conn.close()
     except Exception as e:
-        print(f"Share idea error: {e}")
+        print(f"SHARE IDEA DB ERROR: {repr(e)}")
 
     return redirect(url_for('login', status='success', submitted='idea'))
 
@@ -250,9 +254,8 @@ def submit_review():
         cur.close()
         conn.close()
     except Exception as e:
-        print(f"Submit review error: {e}")
+        print(f"SUBMIT REVIEW DB ERROR: {repr(e)}")
 
-    # Return 200 for fetch() calls from JS, redirect for form POST
     if request.headers.get('X-Requested-With') == 'fetch':
         return '', 200
     return redirect(url_for('login', status='success', submitted='review'))
