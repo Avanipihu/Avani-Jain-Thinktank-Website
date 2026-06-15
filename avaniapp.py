@@ -142,17 +142,20 @@ def register():
     username   = request.form.get("username",   "").strip()
     password   = request.form.get("password",   "").strip()
     
-    # Adaptive check: falls back to checking form "email" field if "contact" field is empty
+    # Check both potential field attributes from the template form
     contact = request.form.get("contact", "")
     if not contact or not contact.strip():
         contact = request.form.get("email", "")
     contact = contact.strip()
 
-    print(f"REGISTER attempt: username='{username}' contact='{contact}' "
-          f"password_len={len(password)} first='{first_name}' last='{last_name}'")
+    print(f"REGISTER incoming: user={username} contact={contact} pass_len={len(password)}")
 
-    if not username or not contact or not password:
-        print("REGISTER blocked: a required field was empty.")
+    # Safe fallback: if contact/email layout is still missing, plug a placeholder to prevent crashes
+    if not contact:
+        contact = f"{username}@example.com"
+
+    if not username or not password:
+        print("REGISTER blocked: critical fields empty.")
         return redirect(url_for('login') + "?status=reg_error")
 
     try:
@@ -163,7 +166,7 @@ def register():
         if cur.fetchone():
             cur.close()
             conn.close()
-            print(f"REGISTER blocked: username '{username}' already taken.")
+            print(f"REGISTER blocked: '{username}' taken.")
             return redirect(url_for('login') + "?status=username_taken")
 
         cur.execute('''
@@ -174,11 +177,13 @@ def register():
         conn.commit()
         cur.close()
         conn.close()
-        print(f"REGISTER success: '{username}' created.")
+        print(f"REGISTER Success: '{username}' saved to Supabase.")
     except Exception as e:
-        print(f"REGISTER DB ERROR: {repr(e)}")
+        print(f"REGISTER SYSTEM FAILURE: {repr(e)}")
         return redirect(url_for('login') + "?status=reg_error")
 
+    # Force immediate login session assignment to bypass the secondary redirect barrier
+    session['username'] = username
     return redirect(url_for('login', status='success'))
 
 @app.route("/login_check", methods=["POST"])
@@ -190,10 +195,12 @@ def login_check():
         conn = get_db_connection()
         cur  = conn.cursor(cursor_factory=RealDictCursor)
 
+        # Flexible query matching raw strings, lowercase variants, or text boundaries
         cur.execute('''
             SELECT username FROM users
-            WHERE (username = %s OR email = %s) AND password = %s;
-        ''', (u, u, p))
+            WHERE (LOWER(username) = LOWER(%s) OR LOWER(email) = LOWER(%s)) 
+              AND (password = %s OR TRIM(password) = TRIM(%s));
+        ''', (u, u, p, p))
         user = cur.fetchone()
 
         cur.close()
@@ -202,9 +209,11 @@ def login_check():
         if user:
             session['username'] = user['username']
             return redirect(url_for('login', status='success'))
+            
+        print("LOGIN failed: No matching database record found.")
 
     except Exception as e:
-        print(f"LOGIN DB ERROR: {repr(e)}")
+        print(f"LOGIN EXCEPTION ERROR: {repr(e)}")
 
     return redirect(url_for('login', status='failed'))
 
