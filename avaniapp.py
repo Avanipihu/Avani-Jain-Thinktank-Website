@@ -140,22 +140,13 @@ def register():
     first_name = request.form.get("first_name", "").strip()
     last_name  = request.form.get("last_name",  "").strip()
     username   = request.form.get("username",   "").strip()
+    email      = request.form.get("email",      "").strip()
     password   = request.form.get("password",   "").strip()
-    
-    # Check both potential field attributes from the template form
-    contact = request.form.get("contact", "")
-    if not contact or not contact.strip():
-        contact = request.form.get("email", "")
-    contact = contact.strip()
 
-    print(f"REGISTER incoming: user={username} contact={contact} pass_len={len(password)}")
+    print(f"REGISTER incoming: user={username} email={email} pass_len={len(password)}")
 
-    # Safe fallback: if contact/email layout is still missing, plug a placeholder to prevent crashes
-    if not contact:
-        contact = f"{username}@example.com"
-
-    if not username or not password:
-        print("REGISTER blocked: critical fields empty.")
+    if not username or not email or not password:
+        print("REGISTER blocked: missing required fields.")
         return redirect(url_for('login') + "?status=reg_error")
 
     try:
@@ -172,7 +163,7 @@ def register():
         cur.execute('''
             INSERT INTO users (email, username, password, expert_points, first_name, last_name)
             VALUES (%s, %s, %s, 0, %s, %s);
-        ''', (contact, username, password, first_name, last_name))
+        ''', (email, username, password, first_name, last_name))
 
         conn.commit()
         cur.close()
@@ -182,10 +173,9 @@ def register():
         print(f"REGISTER SYSTEM FAILURE: {repr(e)}")
         return redirect(url_for('login') + "?status=reg_error")
 
-    # Force immediate login session assignment to bypass the secondary redirect barrier
     session['username'] = username
     return redirect(url_for('login', status='success'))
-
+            
 @app.route("/login_check", methods=["POST"])
 def login_check():
     u = request.form.get("username", "").strip()
