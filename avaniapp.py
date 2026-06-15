@@ -12,7 +12,6 @@ app.secret_key = os.environ.get("SECRET_KEY", "avania_super_secret_key")
 
 DATABASE_URL = os.environ.get('DATABASE_URL')
 
-# ── Render gives postgres:// but psycopg2 needs postgresql:// ──
 if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
