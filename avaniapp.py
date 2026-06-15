@@ -23,6 +23,9 @@ def initialize_database():
     conn = get_db_connection()
     cur = conn.cursor()
 
+    # Automatically drop older mismatched tables to avoid structure conflicts
+    cur.execute("DROP TABLE IF EXISTS reviews, ideas, users CASCADE;")
+
     cur.execute('''
         CREATE TABLE IF NOT EXISTS users (
             id SERIAL PRIMARY KEY,
@@ -240,7 +243,7 @@ def submit_review():
             request.form.get("feasibility", "3"),
             request.form.get("usefulness",  "3"),
             request.form.get("clarity",     "3"),
-            request.form.get("notes",       "").strip(),
+            request.form.get("notes",        "").strip(),
             session.get('username', 'Guest')
         ))
         conn.commit()
