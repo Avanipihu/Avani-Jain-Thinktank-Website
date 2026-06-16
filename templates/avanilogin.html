@@ -259,6 +259,16 @@
         .mfile-name{font-size:0.84rem;font-weight:600;color:var(--slate) !important;}
         .mfile-dl{font-size:0.8rem;color:var(--green-dark) !important;text-decoration:none;}
 
+        /* MY REVIEW CARDS */
+        .my-rev-card{background:white;border:1px solid var(--border);border-radius:12px;padding:16px 18px;transition:all .2s;animation:fadeUp .35s ease both;border-left:3px solid var(--green);}
+        .my-rev-card:hover{box-shadow:0 4px 16px rgba(39,174,96,.1);transform:translateX(3px);}
+        .mrc-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;flex-wrap:wrap;gap:8px;}
+        .mrc-idea{font-size:0.88rem;font-weight:700;color:var(--slate) !important;cursor:pointer;text-decoration:underline;text-underline-offset:2px;}
+        .mrc-idea:hover{color:var(--green) !important;}
+        .mrc-scores{display:flex;gap:5px;}
+        .mrc-chip{background:var(--green-light);color:var(--green-dark) !important;font-size:0.65rem;font-weight:700;padding:2px 7px;border-radius:50px;}
+        .mrc-note{font-size:0.82rem;color:var(--muted) !important;font-style:italic;line-height:1.55;}
+
         @media(max-width:900px){
             #site-nav{padding:0 20px;}
             .auth-wrap{grid-template-columns:1fr;}
@@ -275,9 +285,9 @@
 <body>
 
 <script>
-    const _ideas = {{ ideas|default([])|tojson|safe }};
+    const _ideas   = {{ ideas|default([])|tojson|safe }};
     const _reviews = {{ reviews|default([])|tojson|safe }};
-    const _me = "{{ current_user }}";
+    const _me      = "{{ current_user }}";
 </script>
 
 <nav id="site-nav">
@@ -348,7 +358,7 @@
                         <input class="fi" type="text" name="username" id="ru" placeholder="e.g. zara_builds" required oninput="checkUname(this)">
                         <div class="form-err" id="ruErr">Username taken or contains spaces.</div>
                     </div>
-                   <div class="form-group"><label class="form-label">Email Address</label><input class="fi" type="email" name="email" id="re" placeholder="e.g. zara@thinktank.io" required></div>
+                    <div class="form-group"><label class="form-label">Email Address</label><input class="fi" type="email" name="contact" placeholder="e.g. zara@thinktank.io" required></div>
                     <div class="form-group">
                         <label class="form-label">Password</label>
                         <input class="fi" type="password" name="password" id="rp" placeholder="Min. 8 chars, mix it up!" required oninput="pwStrength(this)">
@@ -406,8 +416,20 @@
                     <div id="fileList"></div>
                 </div>
             </div>
-            <div class="ideas-list" id="myIdeasList">
-                <div class="empty-state"><div class="es-icon">💡</div><h4>No ideas yet</h4><p>Hit "New Idea" to share your first concept.</p></div>
+            <div>
+                <div class="ideas-list" id="myIdeasList">
+                    <div class="empty-state"><div class="es-icon">💡</div><h4>No ideas yet</h4><p>Hit "New Idea" to share your first concept.</p></div>
+                </div>
+
+                <!-- MY REVIEWS SECTION -->
+                <div id="myReviewsSection" style="margin-top:32px;display:none;">
+                    <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--border);">
+                        <i class="fa-solid fa-pen-nib" style="color:var(--green);font-size:0.9rem;"></i>
+                        <span style="font-size:0.85rem;font-weight:700;color:var(--slate);">Reviews You've Written</span>
+                        <span id="myRevBadge" style="background:var(--green-light);color:var(--green-dark);font-size:0.7rem;font-weight:700;padding:2px 8px;border-radius:50px;">0</span>
+                    </div>
+                    <div id="myReviewsList" style="display:flex;flex-direction:column;gap:10px;"></div>
+                </div>
             </div>
         </div>
     </div>
@@ -515,7 +537,7 @@
             <div id="mReviews"></div>
             <hr class="divider">
             <h4 class="modal-h4" style="margin-bottom:14px;"><i class="fa-solid fa-pen-nib"></i> Submit Your Review</h4>
-            <form action="/submit_review" method="POST">
+            <form id="reviewForm" onsubmit="submitReview(event)">
                 <input type="hidden" name="idea_title" id="mIdeaTitle">
                 <div class="slider-grid">
                     <div class="slider-group"><div class="sg-top">Innovation <span id="sv-inn">3</span></div><div class="sg-desc">How novel and original?</div><input type="range" name="innovation" min="1" max="5" value="3" oninput="document.getElementById('sv-inn').textContent=this.value"></div>
@@ -523,10 +545,13 @@
                     <div class="slider-group"><div class="sg-top">Usefulness <span id="sv-use">3</span></div><div class="sg-desc">Solves a genuine pain point?</div><input type="range" name="usefulness" min="1" max="5" value="3" oninput="document.getElementById('sv-use').textContent=this.value"></div>
                     <div class="slider-group"><div class="sg-top">Clarity <span id="sv-cla">3</span></div><div class="sg-desc">Is it clearly explained?</div><input type="range" name="clarity" min="1" max="5" value="3" oninput="document.getElementById('sv-cla').textContent=this.value"></div>
                 </div>
-                <div class="form-group"><label class="form-label">Written Feedback *</label><textarea class="fi" name="notes" rows="3" placeholder="Give the creator specific, actionable advice..." required></textarea></div>
+                <div class="form-group"><label class="form-label">Written Feedback *</label><textarea class="fi" name="notes" id="reviewNotes" rows="3" placeholder="Give the creator specific, actionable advice..." required></textarea></div>
                 <div style="display:flex;justify-content:flex-end;gap:9px;margin-top:10px;">
                     <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('modal').classList.remove('open')">Cancel</button>
-                    <button type="submit" class="btn btn-green btn-sm"><i class="fa-solid fa-paper-plane"></i> Submit Review</button>
+                    <button type="submit" class="btn btn-green btn-sm" id="reviewSubmitBtn"><i class="fa-solid fa-paper-plane"></i> Submit Review</button>
+                </div>
+                <div id="reviewSuccess" style="display:none;margin-top:12px;background:var(--green-light);border:1px solid rgba(39,174,96,.3);border-radius:8px;padding:10px 14px;font-size:0.83rem;color:var(--green-dark);display:none;align-items:center;gap:8px;">
+                    <i class="fa-solid fa-circle-check"></i> Your review has been submitted and saved!
                 </div>
             </form>
         </div>
@@ -664,7 +689,6 @@ function dTab(tab){
     if(tab==='rev') renderReviews();
 }
 
-/* ── WORKSPACE ── */
 function renderWS(){
     const mine  = IDEAS.filter(i=>i.Owner===ME);
     const myRevs= REVIEWS.filter(r=>mine.some(i=>i.Title===r.IdeaTitle));
@@ -680,49 +704,79 @@ function renderWS(){
         buildMiniRadar(avgs);
     }
 
+    // ── MY IDEAS LIST ──
     const list=document.getElementById('myIdeasList');
     if(!mine.length){
         list.innerHTML='<div class="empty-state"><div class="es-icon">💡</div><h4>No ideas yet</h4><p>Hit "New Idea" to share your first concept.</p></div>';
-        return;
-    }
-    list.innerHTML=mine.map((idea,idx)=>{
-        const revs=REVIEWS.filter(r=>r.IdeaTitle===idea.Title);
-        const a   =k=>revs.length?avg(revs,k).toFixed(1):'—';
-        const aNum=k=>revs.length?avg(revs,k):0;
-        const cc  =catClass(idea.Category);
-        const scoreBars=revs.length
-            ? `<div class="score-row">${['Innovation','Feasibility','Usefulness','Clarity'].map(k=>`
-                <div class="score-chip">
-                    <div class="sc-name">${k.substring(0,3)}</div>
-                    <div class="sc-bar"><div class="sc-bar-fill" data-w="${(aNum(k)/5*100).toFixed(0)}" style="width:0"></div></div>
-                    <div class="sc-val">${a(k)}</div>
-                </div>`).join('')}</div>`
-            : `<p style="font-size:0.75rem;color:var(--muted);margin-bottom:10px;">No reviews yet.</p>`;
-        return `<div class="idea-card" style="animation-delay:${idx*0.07}s">
-            <div class="ic-top">
-                <div>
-                    <div class="ic-title">${idea.Title}</div>
-                    <div class="ic-tags">
-                        <span class="tag tag-${cc}">${idea.Category||'Other'}</span>
-                        <span class="tag tag-${(idea.Status||'private').toLowerCase()}">${idea.Status||'Private'}</span>
-                        <span class="tag tag-version">v${idea.Version||'1.0'}</span>
+    } else {
+        list.innerHTML=mine.map((idea,idx)=>{
+            const revs=REVIEWS.filter(r=>r.IdeaTitle===idea.Title);
+            const a   =k=>revs.length?avg(revs,k).toFixed(1):'—';
+            const aNum=k=>revs.length?avg(revs,k):0;
+            const cc  =catClass(idea.Category);
+            const scoreBars=revs.length
+                ? `<div class="score-row">${['Innovation','Feasibility','Usefulness','Clarity'].map(k=>`
+                    <div class="score-chip">
+                        <div class="sc-name">${k.substring(0,3)}</div>
+                        <div class="sc-bar"><div class="sc-bar-fill" data-w="${(aNum(k)/5*100).toFixed(0)}" style="width:0"></div></div>
+                        <div class="sc-val">${a(k)}</div>
+                    </div>`).join('')}</div>`
+                : `<p style="font-size:0.75rem;color:var(--muted);margin-bottom:10px;">No reviews yet — <a style="color:var(--green);cursor:pointer;" onclick="dTab('rev')">explore ideas</a> to get noticed.</p>`;
+            return `<div class="idea-card" style="animation-delay:${idx*0.07}s">
+                <div class="ic-top">
+                    <div>
+                        <div class="ic-title">${idea.Title}</div>
+                        <div class="ic-tags">
+                            <span class="tag tag-${cc}">${idea.Category||'Other'}</span>
+                            <span class="tag tag-${(idea.Status||'private').toLowerCase()}">${idea.Status||'Private'}</span>
+                            <span class="tag tag-version">v${idea.Version||'1.0'}</span>
+                        </div>
+                    </div>
+                    <div style="display:flex;gap:6px;flex-shrink:0;">
+                        <button class="btn btn-outline btn-xs" onclick="editIdea('${idea.Title}')" title="Edit"><i class="fa-solid fa-pencil"></i></button>
+                        <button class="btn btn-danger btn-xs"  onclick="delIdea('${idea.Title}')"  title="Delete"><i class="fa-solid fa-trash"></i></button>
                     </div>
                 </div>
-                <div style="display:flex;gap:6px;flex-shrink:0;">
-                    <button class="btn btn-outline btn-xs" onclick="editIdea('${idea.Title}')" title="Edit"><i class="fa-solid fa-pencil"></i></button>
-                    <button class="btn btn-danger btn-xs"  onclick="delIdea('${idea.Title}')"  title="Delete"><i class="fa-solid fa-trash"></i></button>
+                <p class="ic-desc">${(idea.Problem||'No problem statement defined.').substring(0,130)}…</p>
+                ${scoreBars}
+                <div class="ic-actions">
+                    <button class="btn btn-green  btn-xs" onclick="openModal('${idea.Title}')"><i class="fa-solid fa-chart-radar"></i> Full Stats</button>
+                    <button class="btn btn-slate  btn-xs" onclick="window.location.href='/export_pdf/${idea.Title}'"><i class="fa-solid fa-file-pdf"></i> PDF</button>
+                    <button class="btn btn-outline btn-xs" onclick="togglePriv('${idea.Title}')">${idea.Status==='Public'?'🔒 Make Private':'🌍 Make Public'}</button>
                 </div>
-            </div>
-            <p class="ic-desc">${(idea.Problem||'No problem statement defined.').substring(0,130)}…</p>
-            ${scoreBars}
-            <div class="ic-actions">
-                <button class="btn btn-green  btn-xs" onclick="openModal('${idea.Title}')"><i class="fa-solid fa-chart-radar"></i> Full Stats</button>
-                <button class="btn btn-slate  btn-xs" onclick="window.location.href='/export_pdf/${idea.Title}'"><i class="fa-solid fa-file-pdf"></i> PDF</button>
-                <button class="btn btn-outline btn-xs" onclick="togglePriv('${idea.Title}')">${idea.Status==='Public'?'🔒 Make Private':'🌍 Make Public'}</button>
-            </div>
-        </div>`;
-    }).join('');
-    triggerBars(document.getElementById('myIdeasList'));
+            </div>`;
+        }).join('');
+        triggerBars(document.getElementById('myIdeasList'));
+    }
+
+    // ── MY WRITTEN REVIEWS ──
+    const writtenRevs = REVIEWS.filter(r => r.Reviewer === ME);
+    const revSection  = document.getElementById('myReviewsSection');
+    const revList     = document.getElementById('myReviewsList');
+    const revBadge    = document.getElementById('myRevBadge');
+
+    if(writtenRevs.length){
+        revSection.style.display = 'block';
+        revBadge.textContent = writtenRevs.length;
+        revList.innerHTML = writtenRevs.map((r,idx)=>{
+            const mn = Math.round((parseInt(r.Innovation)+parseInt(r.Feasibility)+parseInt(r.Usefulness)+parseInt(r.Clarity))/4);
+            return `<div class="my-rev-card" style="animation-delay:${idx*0.06}s">
+                <div class="mrc-top">
+                    <span class="mrc-idea" onclick="openModal('${r.IdeaTitle}')">${r.IdeaTitle}</span>
+                    <div class="mrc-scores">
+                        <span class="mrc-chip">Inn ${r.Innovation}</span>
+                        <span class="mrc-chip">Fea ${r.Feasibility}</span>
+                        <span class="mrc-chip">Use ${r.Usefulness}</span>
+                        <span class="mrc-chip">Cla ${r.Clarity}</span>
+                        <span style="color:var(--yellow);font-size:0.78rem;">${stars(mn)}</span>
+                    </div>
+                </div>
+                <p class="mrc-note">"${r.Notes}"</p>
+            </div>`;
+        }).join('');
+    } else {
+        revSection.style.display = 'none';
+    }
 }
 
 function buildMiniRadar(data){
@@ -866,6 +920,54 @@ function openModal(title){
     document.getElementById('modal').classList.add('open');
 }
 function closeModal(e){ if(e.target===document.getElementById('modal')) document.getElementById('modal').classList.remove('open'); }
+
+/* ── SUBMIT REVIEW (instant + backend) ── */
+async function submitReview(e){
+    e.preventDefault();
+    const title = document.getElementById('mIdeaTitle').value;
+    const inn   = document.getElementById('sv-inn').textContent;
+    const fea   = document.getElementById('sv-fea').textContent;
+    const use   = document.getElementById('sv-use').textContent;
+    const cla   = document.getElementById('sv-cla').textContent;
+    const notes = document.getElementById('reviewNotes').value.trim();
+    if(!notes){ document.getElementById('reviewNotes').classList.add('err'); return; }
+
+    // 1. Add to local REVIEWS array immediately so it renders right now
+    const newRev = { IdeaTitle:title, Reviewer:ME||'You', Innovation:parseInt(inn), Feasibility:parseInt(fea), Usefulness:parseInt(use), Clarity:parseInt(cla), Notes:notes };
+    REVIEWS.push(newRev);
+
+    // 2. Show success message inside modal
+    const successEl = document.getElementById('reviewSuccess');
+    successEl.style.display = 'flex';
+    document.getElementById('reviewSubmitBtn').disabled = true;
+    document.getElementById('reviewSubmitBtn').textContent = '✓ Submitted';
+
+    // 3. Re-render the reviews list in the modal
+    const revs = REVIEWS.filter(r=>r.IdeaTitle===title);
+    document.getElementById('mReviews').innerHTML = revs.map(r=>{
+        const mn=Math.round((parseInt(r.Innovation)+parseInt(r.Feasibility)+parseInt(r.Usefulness)+parseInt(r.Clarity))/4);
+        return `<div class="review-item" style="animation:fadeUp .3s ease both">
+            <div class="ri-head">
+                <strong class="ri-name">${r.Reviewer}</strong>
+                <span class="expert-badge"><i class="fa-solid fa-id-badge"></i> Expert</span>
+                <span class="star-row">${stars(mn)}</span>
+                <span class="ri-scores">[Inn:${r.Innovation} Fea:${r.Feasibility} Use:${r.Usefulness} Cla:${r.Clarity}]</span>
+            </div>
+            <p class="ri-note">"${r.Notes}"</p>
+        </div>`;
+    }).join('');
+
+    // 4. Post to Flask backend (fire-and-forget, no redirect)
+    const fd = new FormData();
+    fd.append('idea_title', title); fd.append('innovation', inn);
+    fd.append('feasibility', fea); fd.append('usefulness', use);
+    fd.append('clarity', cla);     fd.append('notes', notes);
+    try{ await fetch('/submit_review', { method:'POST', body:fd }); }
+    catch(err){ console.warn('Backend save failed, review stored locally only.'); }
+
+    toast('Review submitted! ⭐','fa-star');
+    renderWS(); // refresh workspace My Reviews section
+}
 
 /* ── SHARE FORM ── */
 function upPv(){
